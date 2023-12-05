@@ -19,51 +19,16 @@ import matplotlib.animation as animation
 from nets import Generator, Discriminator
 
 
-# Number of workers for dataloader
-workers = 2
-
-# Batch size during training
-batch_size = 128
-
-# Spatial size of training images. All images will be resized to this
-#   size using a transformer.
-image_size = 64
-
-# Number of channels in the training images. For color images this is 3
-nc = 3
-
-# Size of z latent vector (i.e. size of generator input)
-nz = 100
-
-# Size of feature maps in generator
-ngf = 64
-
-# Size of feature maps in discriminator
-ndf = 64
-
-# Number of training epochs
-num_epochs = 5
-
-# Learning rate for optimizers
-lr = 0.0002
-
-# Beta1 hyperparameter for Adam optimizers
-beta1 = 0.5
-
-# Number of GPUs available. Use 0 for CPU mode.
-ngpu = 1
-
-
 def get_user_input():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=14, metavar='N',
                         help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
-                        help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
-                        help='Learning rate step gamma (default: 0.7)')
+    parser.add_argument('--lr', type=float, default=0.0002, metavar='LR',
+                        help='learning rate (default: 0.0002)')
+    parser.add_argument('--beta1', type=float, default=0.5, metavar='M',
+                        help='Learning rate step beta1 (default: 0.5)')
     parser.add_argument('--no-gpu', action='store_true', default=False,
                         help='disables GPU training')
     parser.add_argument('--dry-run', action='store_true', default=False,
@@ -193,8 +158,8 @@ def main():
     fake_label = 0.
 
     # Setup Adam optimizers for both generator and discriminator
-    opt_disc = optim.Adam(discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
-    opt_gen = optim.Adam(generator.parameters(), lr=lr, betas=(beta1, 0.999))
+    opt_disc = optim.Adam(discriminator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
+    opt_gen = optim.Adam(generator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
 
     # Lists to keep track of progress
     img_list = []
@@ -204,7 +169,7 @@ def main():
 
     print("Starting Training Loop...")
     # For each epoch
-    for epoch in range(num_epochs):
+    for epoch in range(args.epochs):
         # For each batch in the dataloader
         for i, data in enumerate(dataloader, 0):
 
@@ -261,7 +226,7 @@ def main():
             # Output training stats
             if i % 50 == 0:
                 print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
-                      % (epoch, num_epochs, i, len(dataloader),
+                      % (epoch, args.epochs, i, len(dataloader),
                          errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
 
             # Save Losses for plotting later
@@ -269,7 +234,7 @@ def main():
             losses_disc.append(errD.item())
 
             # Check how the generator is doing by saving G's output on fixed_noise
-            if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(dataloader)-1)):
+            if (iters % 500 == 0) or ((epoch == args.epochs-1) and (i == len(dataloader)-1)):
                 with torch.no_grad():
                     gen_imgs = generator(fixed_noise).detach().cpu()
                 img_list.append(vutils.make_grid(gen_imgs, padding=2, normalize=True))
