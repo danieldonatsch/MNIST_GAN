@@ -86,89 +86,120 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
 
-def train_discriminator():
-    pass
 
-def train_generator():
-    pass
+def get_dataloader(args) -> torch.utils.data.DataLoader:
+    """ Assembles the data loader
 
-def main():
-
-    args = get_user_input()
-
-    if args.no_gpu:
-        device = torch.device("cpu")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        print("GPU-training not possible")
-        device = torch.device("cpu")
-
-
-    # Set random seed for reproducibility
-    # manualSeed = random.randint(1, 10000) # use if you want new results
-    print("Random Seed: ", args.seed)
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.use_deterministic_algorithms(True)  # Needed for reproducible results
-
+    :param args: args from ArgumentParser
+    :return: torch.utils.data.DataLoader object
+    """
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5,), (0.5,))
         ])
     dataset = datasets.MNIST('../data', train=True, download=True, transform=transform)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size)
+    return torch.utils.data.DataLoader(dataset, batch_size=args.batch_size)
 
 
+def get_device(args) -> torch.device:
+    """Checks if user requested GPU or CPU training and if GPUs are available. Also deals with processors architecture.
+
+    :param args: args from ArgumentParser
+    :return: torch.device
+    """
+    if args.no_gpu:
+        return torch.device("cpu")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    print("GPU-training not possible")
+    return torch.device("cpu")
+
+
+def set_random_seed(args):
+    """ Set random seed for reproducibility
+
+    :param args: args from ArgumentParser
+    :return: None
+    """
+    if args.seed > 0:
+        seed = args.seed
+    else:
+        seed = random.randint(1, 10000)
+    print("Random Seed: ", seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+
+
+def get_nets(device, args) -> tuple:
+    """Sets up the generator and discriminator nets
+
+    :param device: torch.device
+    :param args: args from ArgumentParser
+    :return: tuple(generator net, discriminator net)
+    """
     # Create the generator
-    netG = Generator(ngpu, 1).to(device)
-
-
-    # Apply the ``weights_init`` function to randomly initialize all weights
-    #  to ``mean=0``, ``stdev=0.02``.
-    netG.apply(weights_init)
-
-    # Print the model
-    #print(netG)
-
+    ngpu = 1    # TODO make it an argument
+    g = Generator(ngpu, 1).to(device)
     # Create the Discriminator
-    netD = Discriminator(ngpu).to(device)
+    d = Discriminator(ngpu).to(device)
 
     # Handle multi-GPU if desired
     if (device.type == 'cuda') and (ngpu > 1):
-        netD = nn.DataParallel(netD, list(range(ngpu)))
+        g = nn.DataParallel(g, list(range(ngpu)))
+        d = nn.DataParallel(d, list(range(ngpu)))
 
-    # Apply the ``weights_init`` function to randomly initialize all weights
-    # like this: ``to mean=0, stdev=0.2``.
-    netD.apply(weights_init)
+    # Apply the weights_init function to randomly initialize all weights to mean=0, stdev=0.02.
+    g.apply(weights_init)
+    d.apply(weights_init)
 
     # Print the model
-    #print(netD)
+    #print(g)
+    #print(d)
+
+    return g, d
+
+
+def train_discriminator():
+    pass
+
+
+def train_generator():
+    pass
+
+
+def main():
+
+    args = get_user_input()
+
+    set_random_seed(args)
+
+    device = get_device(args)
+    torch.use_deterministic_algorithms(True)  # Needed for reproducible results
+
+    dataloader = get_dataloader(args)
+
+    generator, discriminator = get_nets(device, args)
 
     # Initialize the ``BCELoss`` function
     criterion = nn.BCELoss()
 
-    # Create batch of latent vectors that we will use to visualize
-    #  the progression of the generator
+    # Create batch of latent vectors that we will use to visualize the progression of the generator
     fixed_noise = torch.randn(64, 1, 7, 7, device=device)
 
-    # Establish convention for real and fake labels during training
+    # Establish convention for real and gen_imgs labels during training
     real_label = 1.
     fake_label = 0.
 
-    # Setup Adam optimizers for both G and D
-    optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, 0.999))
-    optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, 0.999))
-
-
-    # Training Loop
+    # Setup Adam optimizers for both generator and discriminator
+    opt_disc = optim.Adam(discriminator.parameters(), lr=lr, betas=(beta1, 0.999))
+    opt_gen = optim.Adam(generator.parameters(), lr=lr, betas=(beta1, 0.999))
 
     # Lists to keep track of progress
     img_list = []
-    G_losses = []
-    D_losses = []
+    losses_gen = []
+    losses_disc = []
     iters = 0
 
     print("Starting Training Loop...")
@@ -181,51 +212,51 @@ def main():
             # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
             ###########################
             ## Train with all-real batch
-            netD.zero_grad()
+            discriminator.zero_grad()
             # Format batch
-            real_cpu = data[0].to(device)
-            b_size = real_cpu.size(0)
+            real_imgs = data[0].to(device)
+            b_size = real_imgs.size(0)
             label = torch.full((b_size,), real_label, dtype=torch.float, device=device)
             # Forward pass real batch through D
-            output = netD(real_cpu).view(-1)
+            output = discriminator(real_imgs).view(-1)
             # Calculate loss on all-real batch
             errD_real = criterion(output, label)
             # Calculate gradients for D in backward pass
             errD_real.backward()
             D_x = output.mean().item()
 
-            ## Train with all-fake batch
+            ## Train with generated images batch
             # Generate batch of latent vectors
             noise = torch.randn(b_size, 1, 7, 7, device=device)
-            # Generate fake image batch with G
-            fake = netG(noise)
+            # Generate gen_imgs image batch with G
+            gen_imgs = generator(noise)
             label.fill_(fake_label)
-            # Classify all fake batch with D
-            output = netD(fake.detach()).view(-1)
-            # Calculate D's loss on the all-fake batch
-            errD_fake = criterion(output, label)
+            # Classify all gen_imgs batch with the discriminator
+            output = discriminator(gen_imgs.detach()).view(-1)
+            # Calculate discriminator's loss on the all-gen_imgs batch
+            errD_gen = criterion(output, label)
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
-            errD_fake.backward()
+            errD_gen.backward()
             D_G_z1 = output.mean().item()
-            # Compute error of D as sum over the fake and the real batches
-            errD = errD_real + errD_fake
+            # Compute error of D as sum over the generated and the real images batches
+            errD = errD_real + errD_gen
             # Update D
-            optimizerD.step()
+            opt_disc.step()
 
             ############################
             # (2) Update G network: maximize log(D(G(z)))
             ###########################
-            netG.zero_grad()
-            label.fill_(real_label)  # fake labels are real for generator cost
-            # Since we just updated D, perform another forward pass of all-fake batch through D
-            output = netD(fake).view(-1)
-            # Calculate G's loss based on this output
+            generator.zero_grad()
+            label.fill_(real_label)  # gen_imgs labels are real for generator cost
+            # Since we just updated D, perform another forward pass of all-gen_imgs batch through D
+            output = discriminator(gen_imgs).view(-1)
+            # Calculate generator's loss based on this output
             errG = criterion(output, label)
             # Calculate gradients for G
             errG.backward()
             D_G_z2 = output.mean().item()
             # Update G
-            optimizerG.step()
+            opt_gen.step()
 
             # Output training stats
             if i % 50 == 0:
@@ -234,21 +265,27 @@ def main():
                          errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
 
             # Save Losses for plotting later
-            G_losses.append(errG.item())
-            D_losses.append(errD.item())
+            losses_gen.append(errG.item())
+            losses_disc.append(errD.item())
 
             # Check how the generator is doing by saving G's output on fixed_noise
             if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(dataloader)-1)):
                 with torch.no_grad():
-                    fake = netG(fixed_noise).detach().cpu()
-                img_list.append(vutils.make_grid(fake, padding=2, normalize=True))
+                    gen_imgs = generator(fixed_noise).detach().cpu()
+                img_list.append(vutils.make_grid(gen_imgs, padding=2, normalize=True))
 
             iters += 1
 
         plt.figure()
-        for i in range(min(24, fake.size(0))):
+        for i in range(min(24, gen_imgs.size(0))):
             plt.subplot(4, 6, i+1)
-            plt.imshow(fake[i, 0, :, :].cpu().detach().numpy(), cmap='gray')
+            plt.imshow(gen_imgs[i, 0, :, :].cpu().detach().numpy(), cmap='gray')
+
+        plt.figure()
+        plt.title("Loss Development")
+        plt.plot(losses_gen, label='Generator loss')
+        plt.plot(losses_disc, label='Discriminator loss')
+        plt.legend()
         plt.show()
 
 
