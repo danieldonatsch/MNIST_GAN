@@ -1,0 +1,12 @@
+name: MNIST_Gen_AI
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.11
+  - matplotlib
+  - numpy
+  - pytorch
+  - torchvision
+  - tqdm
