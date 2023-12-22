@@ -19,6 +19,8 @@ from train_classifier import ClassifierNet
 
 def get_user_input():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+    parser.add_argument('--net-version', type=int, default=0, metavar='N',
+                        help='Number of the net/model version (default: 0)')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=14, metavar='N',
@@ -104,9 +106,9 @@ def get_nets(device, args) -> tuple:
     """
     # Create the generator
     ngpu = 1    # TODO make it an argument
-    g = Generator(ngpu, 2).to(device)
+    g = Generator(ngpu, 2, version=args.net_version).to(device)
     # Create the Discriminator
-    d = Discriminator(ngpu).to(device)
+    d = Discriminator(ngpu, version=args.net_version).to(device)
     # Create the Classifier, needed for the loss
     c = ClassifierNet().to(device)
 
@@ -143,6 +145,7 @@ def create_generator_input(batch_size, device):
     :param device: torch.device
     :return: generator_input, expected numbers
     """
+    return torch.randn(batch_size, 10, device=device), torch.randint(0, 10, size=(batch_size, ), device=device)
     # Generate batch of generator input, consisting of noise and the target number
     noise = torch.randn(batch_size, 1, 7, 7, device=device)
     target_nums = torch.randint(0, 10, size=(batch_size, 1, 1, 1), device=device)
@@ -154,29 +157,30 @@ def create_generator_input(batch_size, device):
     return generator_input, target_nums.view(-1)
 
 
-def train_discriminator():
-    pass
-
-
-def train_generator():
-    pass
-
-
 def main():
+    """main() runs the main loop, including the actual training.
 
+    :return:
+    """
+
+    # Get the user arguments
     args = get_user_input()
+    print("User given arguments:")
+    for k, v in args.__dict__.items():
+        print(f"- {k}: {v}")
 
     set_random_seed(args)
 
     device = get_device(args)
     torch.use_deterministic_algorithms(True)  # Needed for reproducible results
 
+    # Get the data and the nets we need
     dataloader = get_dataloader(args)
-
     generator, discriminator, classifier = get_nets(device, args)
 
-    # Initialize the ``BCELoss`` function
-    criterion = nn.BCELoss()
+    # Initialize the ``BCELoss`` for the discriminator and the NLLLoss for the classifiere
+    disc_criterion = nn.BCELoss()
+    class_criterion = nn.NLLLoss()
 
     # Create batch of latent vectors that we will use to visualize the progression of the generator
     fixed_gen_in, fixed_exp_nums = create_generator_input(64, device)
@@ -198,7 +202,7 @@ def main():
     print("Starting Training Loop...")
     # For each epoch
     for epoch in range(args.epochs):
-        alpha = 0.5 + 0.5 * epoch/args.epochs  # The weight of the number classifier
+        alpha = 0.5
         print("alpha:", alpha)
         loss_disc, loss_gen, D_x, D_G_z1, D_G_z2, gen_acc = 0, 0, 0, 0, 0, 0
         # For each batch in the dataloader
@@ -216,7 +220,7 @@ def main():
             # Forward pass real batch through D
             output = discriminator(real_imgs).view(-1)
             # Calculate loss on all-real batch
-            err_disc_real = criterion(output, label)
+            err_disc_real = disc_criterion(output, label)
             # Calculate gradients for D in backward pass
             err_disc_real.backward()
             # Compute mean value for the discriminator on real MNIST images
@@ -225,12 +229,12 @@ def main():
             # # Train with generated images batch
             gen_input, exp_nums = create_generator_input(b_size, device)
             # Generate image batch with G
-            gen_imgs = generator(gen_input)
+            gen_imgs = generator(gen_input, exp_nums)
             label.fill_(fake_label)
             # Classify the generated images with the discriminator
             output = discriminator(gen_imgs.detach()).view(-1)
             # Calculate discriminator's loss on the all-gen_imgs batch
-            err_disc_gen = criterion(output, label)
+            err_disc_gen = disc_criterion(output, label)
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
             err_disc_gen.backward()
             # Compute error of D as sum over the generated and the real images batches
@@ -252,8 +256,8 @@ def main():
             # Also, infer the number the represent (or: they are supposed to...)
             output_class = classifier(gen_imgs)
             # Calculate generator's loss based on this output
-            err_generator = (1 - alpha) * criterion(output_disc, label) + \
-                            alpha * nn.functional.nll_loss(output_class, exp_nums)
+            err_generator = (1 - alpha) * disc_criterion(output_disc, label) + \
+                            alpha * class_criterion(output_class, exp_nums)
             # Calculate gradients for G
             err_generator.backward()
             # Update G
@@ -279,7 +283,7 @@ def main():
             iters += 1
 
         # End of Epoch, run once the fixed noise
-        gen_imgs = generator(fixed_gen_in)
+        gen_imgs = generator(fixed_gen_in, fixed_exp_nums)
         output_class = classifier(gen_imgs)
         derived_num = output_class.argmax(dim=1)
         correct = fixed_exp_nums.eq(derived_num).sum().item()
@@ -292,15 +296,19 @@ def main():
         print(f"\nFixed Input: {epoch+1}/{args.epochs} epochs, " +
               f"number classifier accuracy: {accuracy:.4%} ({correct} / {fixed_gen_in.size(0)})\n")
 
-        plt.figure()
+        plt.figure(figsize=(32, 18))
         for sample_no in range(min(60, gen_imgs.size(0))):
             plt.subplot(6, 10, sample_no+1)
-            plt.title(f"{int(fixed_exp_nums[sample_no].item())} ({derived_num[sample_no]})")
+            plt.title(f"T: {int(fixed_exp_nums[sample_no].item())} (C: {derived_num[sample_no]})",
+                      {'color': 'g' if fixed_exp_nums[sample_no].item() == derived_num[sample_no] else 'r'})
             plt.imshow(gen_imgs[sample_no, 0, :, :].cpu().detach().numpy(), cmap='gray')
 
-        plt.savefig(f"fixed_input_samples_epoch={epoch+1}_acc={int(100*gen_acc):02d}.png")
+        plt.savefig(f"fixed_input_samples_epoch={epoch+1}_acc={int(100*accuracy):02d}.png")
 
-        if epoch % 2 == 0:
+        if epoch % 15 == 0 or (epoch + 1) == args.epochs:
+            if args.save_model:
+                torch.save(generator.state_dict(), f"generator_weights_{epoch:03d}.pt")
+                torch.save(discriminator.state_dict(), f"discriminator_weights_{epoch:03d}.pt")
             plt.figure()
             plt.title("Loss Development")
             plt.plot(losses_gen, label='Generator loss')
@@ -309,6 +317,10 @@ def main():
             plt.show()
         else:
             plt.close()
+
+    # Save the models - in any case!
+    torch.save(generator.state_dict(), "generator_weights_final.pt")
+    torch.save(discriminator.state_dict(), "discriminator_weights_final.pt")
 
 
 if __name__ == '__main__':
