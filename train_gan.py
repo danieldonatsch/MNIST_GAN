@@ -2,6 +2,7 @@
 https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
 """
 import argparse
+import os
 import random
 import torch
 import torch.nn as nn
@@ -22,23 +23,31 @@ def get_user_input():
     parser.add_argument('--net-version', type=int, default=0, metavar='N',
                         help='Number of the net/model version (default: 0)')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
+                        help='Input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=14, metavar='N',
-                        help='number of epochs to train (default: 14)')
+                        help='Mumber of epochs to train (default: 14)')
     parser.add_argument('--lr', type=float, default=0.0002, metavar='LR',
                         help='learning rate (default: 0.0002)')
     parser.add_argument('--beta1', type=float, default=0.5, metavar='M',
                         help='Learning rate step beta1 (default: 0.5)')
+    parser.add_argument('--delta-alpha', type=float, default=0.0, metavar='M',
+                        help='The change of alpha after each epoch (default: 0.0)')
+    parser.add_argument('--scheduler-step', type=int, default=100, metavar='M',
+                        help='Number of epochs between learning rate changes (default: 100)')
+    parser.add_argument('--scheduler-gamma', type=float, default=1.0, metavar='M',
+                        help='Factor to change learning rate (default: 1.0, i.e. no change)')
     parser.add_argument('--no-gpu', action='store_true', default=False,
-                        help='disables GPU training')
+                        help='Disables GPU training')
     parser.add_argument('--dry-run', action='store_true', default=False,
-                        help='quickly check a single pass')
+                        help='Quickly check a single pass')
     parser.add_argument('--seed', type=int, default=999, metavar='S',
-                        help='random seed (default: 999)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
+                        help='Random seed (default: 999)')
+    parser.add_argument('--log-interval', type=int, default=50, metavar='N',
+                        help='How many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
+    parser.add_argument('--out-dir', type=str, default='out',
+                        help="(Path to) output directory (default: 'out')")
     return parser.parse_args()
 
 
@@ -169,6 +178,10 @@ def main():
     for k, v in args.__dict__.items():
         print(f"- {k}: {v}")
 
+    out_dir = args.out_dir
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+
     set_random_seed(args)
 
     device = get_device(args)
@@ -190,8 +203,10 @@ def main():
     fake_label = 0.
 
     # Setup Adam optimizers for both generator and discriminator
-    opt_disc = optim.Adam(discriminator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
     opt_gen = optim.Adam(generator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
+    opt_disc = optim.Adam(discriminator.parameters(), lr=args.lr, betas=(args.beta1, 0.999))
+    scheduler_gen = optim.lr_scheduler.StepLR(opt_gen, step_size=args.scheduler_step, gamma=args.scheduler_gamma)
+    scheduler_disc = optim.lr_scheduler.StepLR(opt_disc, step_size=args.scheduler_step, gamma=args.scheduler_gamma, verbose=True)
 
     # Lists to keep track of progress
     img_list = []
@@ -202,7 +217,7 @@ def main():
     print("Starting Training Loop...")
     # For each epoch
     for epoch in range(args.epochs):
-        alpha = 0.5
+        alpha = 0.5 + (epoch * args.delta_alpha)
         print("alpha:", alpha)
         loss_disc, loss_gen, D_x, D_G_z1, D_G_z2, gen_acc = 0, 0, 0, 0, 0, 0
         # For each batch in the dataloader
@@ -268,12 +283,12 @@ def main():
             gen_acc += exp_nums.eq(output_class.argmax(dim=1)).sum().item() / b_size
 
             # Output training stats
-            freq = 50
-            if (i+1) % freq == 0:
+            if (i+1) % args.log_interval == 0:
                 print(f"[{epoch+1}/{args.epochs}][{i+1}/{len(dataloader)}]" +
-                      f"\tLoss_D: {loss_disc/freq:.4f}\tLoss_G: {loss_gen/freq:.4f}" +
-                      f"\tD(x): {D_x/freq:.4f}\tD(G(z)): {D_G_z1/freq:.4f} / {D_G_z2/freq:.4f}" +
-                      f"\tC(G(z): {gen_acc/freq:.4%}")
+                      f"\tLoss_D: {loss_disc/args.log_interval:.4f}\tLoss_G: {loss_gen/args.log_interval:.4f}" +
+                      f"\tD(x): {D_x/args.log_interval:.4f}\t" +
+                      f"D(G(z)): {D_G_z1/args.log_interval:.4f} / {D_G_z2/args.log_interval:.4f}" +
+                      f"\tC(G(z): {gen_acc/args.log_interval:.4%}")
                 loss_disc, loss_gen, D_x, D_G_z1, D_G_z2, gen_acc = 0, 0, 0, 0, 0, 0
 
             # Save Losses for plotting later
@@ -282,9 +297,15 @@ def main():
 
             iters += 1
 
-        # End of Epoch, run once the fixed noise
+        # End of Epoch:
+        # Let the scheduler make a step
+        scheduler_gen.step()
+        scheduler_disc.step()
+        # run once the fixed noise
         gen_imgs = generator(fixed_gen_in, fixed_exp_nums)
         output_class = classifier(gen_imgs)
+        output_disc = discriminator(gen_imgs).view(-1)
+        disc_error = output_disc.mean().item()
         derived_num = output_class.argmax(dim=1)
         correct = fixed_exp_nums.eq(derived_num).sum().item()
         accuracy = correct / fixed_gen_in.size(0)
@@ -293,7 +314,7 @@ def main():
         derived_num = derived_num.detach().cpu()
         img_list.append(vutils.make_grid(gen_imgs, padding=2, normalize=True))
 
-        print(f"\nFixed Input: {epoch+1}/{args.epochs} epochs, " +
+        print(f"\nFixed Input: {epoch+1}/{args.epochs} epochs, discriminator error {disc_error:.4%}, " +
               f"number classifier accuracy: {accuracy:.4%} ({correct} / {fixed_gen_in.size(0)})\n")
 
         plt.figure(figsize=(32, 18))
@@ -303,12 +324,12 @@ def main():
                       {'color': 'g' if fixed_exp_nums[sample_no].item() == derived_num[sample_no] else 'r'})
             plt.imshow(gen_imgs[sample_no, 0, :, :].cpu().detach().numpy(), cmap='gray')
 
-        plt.savefig(f"fixed_input_samples_epoch={epoch+1}_acc={int(100*accuracy):02d}.png")
+        plt.savefig(os.path.join(out_dir, f"fixed_input_samples_epoch={epoch+1}_acc={int(100*accuracy):02d}.png"))
 
         if epoch % 15 == 0 or (epoch + 1) == args.epochs:
             if args.save_model:
-                torch.save(generator.state_dict(), f"generator_weights_{epoch:03d}.pt")
-                torch.save(discriminator.state_dict(), f"discriminator_weights_{epoch:03d}.pt")
+                torch.save(generator.state_dict(), os.path.join(out_dir, f"generator_weights_{epoch:03d}.pt"))
+                torch.save(discriminator.state_dict(), os.path.join(out_dir, f"discriminator_weights_{epoch:03d}.pt"))
             plt.figure()
             plt.title("Loss Development")
             plt.plot(losses_gen, label='Generator loss')
@@ -319,8 +340,8 @@ def main():
             plt.close()
 
     # Save the models - in any case!
-    torch.save(generator.state_dict(), "generator_weights_final.pt")
-    torch.save(discriminator.state_dict(), "discriminator_weights_final.pt")
+    torch.save(generator.state_dict(), os.path.join(out_dir, "generator_weights_final.pt"))
+    torch.save(discriminator.state_dict(), os.path.join(out_dir, "discriminator_weights_final.pt"))
 
 
 if __name__ == '__main__':
