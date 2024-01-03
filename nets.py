@@ -4,14 +4,14 @@ import torch.nn as nn
 
 
 class Generator(nn.Module):
-    def __init__(self, ngpu, input_channels, version=0):
+    def __init__(self, ngpu, input_channels, version=0, input_vector_len=10):
         super(Generator, self).__init__()
         self.ngpu = ngpu
         self.main = None
         if version == 1:
             self.net_version1(input_channels)
         elif version == 2:
-            self.net_version2(input_channels)
+            self.net_version2(input_vector_len)
         else:
             self.net_version0(input_channels)
 
@@ -75,7 +75,7 @@ class Generator(nn.Module):
             # state size. ``1 x 28 x 28``
         )
 
-    def net_version2(self, input_channels) -> None:
+    def net_version2(self, input_vector_len) -> None:
         """Net Version 2, from the following Medium article (ported from Tensorflow to PyTorch)
 
         “Building & Training GAN Model From Scratch In Python“ by Youssef Hosni
@@ -86,8 +86,9 @@ class Generator(nn.Module):
         """
         print("Build Generator v2")
         self.main = nn.Sequential(
-            # input vector with randon numbers of length 100
-            nn.Linear(20, 7*7*128),
+            # input vector with input_vector_len randon numbers plus
+            # 10 numbers for the one-hot encoding of the requested digit
+            nn.Linear(10+input_vector_len, 7*7*128),
             nn.Unflatten(1, (128, 7, 7)),
             nn.ReLU(True),
             # state size. ``128 x 7 x 7``

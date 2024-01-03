@@ -32,7 +32,7 @@ def get_user_input():
                         help='Learning rate step beta1 (default: 0.5)')
     parser.add_argument('--delta-alpha', type=float, default=0.0, metavar='M',
                         help='The change of alpha after each epoch (default: 0.0)')
-    parser.add_argument('--scheduler-step', type=int, default=100, metavar='M',
+    parser.add_argument('--scheduler-step', type=int, default=100, metavar='N',
                         help='Number of epochs between learning rate changes (default: 100)')
     parser.add_argument('--scheduler-gamma', type=float, default=1.0, metavar='M',
                         help='Factor to change learning rate (default: 1.0, i.e. no change)')
@@ -40,7 +40,7 @@ def get_user_input():
                         help='Disables GPU training')
     parser.add_argument('--dry-run', action='store_true', default=False,
                         help='Quickly check a single pass')
-    parser.add_argument('--seed', type=int, default=999, metavar='S',
+    parser.add_argument('--seed', type=int, default=999, metavar='N',
                         help='Random seed (default: 999)')
     parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                         help='How many batches to wait before logging training status')
@@ -48,6 +48,8 @@ def get_user_input():
                         help='For Saving the current Model')
     parser.add_argument('--out-dir', type=str, default='out',
                         help="(Path to) output directory (default: 'out')")
+    parser.add_argument('--input_vec', type=int, default=10, metavar='N',
+                        help='How many batches to wait before logging training status')
     return parser.parse_args()
 
 
@@ -115,7 +117,7 @@ def get_nets(device, args) -> tuple:
     """
     # Create the generator
     ngpu = 1    # TODO make it an argument
-    g = Generator(ngpu, 2, version=args.net_version).to(device)
+    g = Generator(ngpu, 2, version=args.net_version, input_vector_len=args.input_vec).to(device)
     # Create the Discriminator
     d = Discriminator(ngpu, version=args.net_version).to(device)
     # Create the Classifier, needed for the loss
@@ -142,7 +144,7 @@ def get_nets(device, args) -> tuple:
     return g, d, c
 
 
-def create_generator_input(batch_size, device):
+def create_generator_input(batch_size, device, args):
     """Creates input for the generator.
 
     For each input a 2x7x7 tensor,
@@ -154,7 +156,7 @@ def create_generator_input(batch_size, device):
     :param device: torch.device
     :return: generator_input, expected numbers
     """
-    return torch.randn(batch_size, 10, device=device), torch.randint(0, 10, size=(batch_size, ), device=device)
+    return torch.randn(batch_size, args.input_vec, device=device), torch.randint(0, 10, size=(batch_size, ), device=device)
     # Generate batch of generator input, consisting of noise and the target number
     noise = torch.randn(batch_size, 1, 7, 7, device=device)
     target_nums = torch.randint(0, 10, size=(batch_size, 1, 1, 1), device=device)
@@ -191,7 +193,7 @@ def main():
     dataloader = get_dataloader(args)
     generator, discriminator, classifier = get_nets(device, args)
 
-    # Initialize the ``BCELoss`` for the discriminator and the NLLLoss for the classifiere
+    # Initialize the ``BCELoss`` for the discriminator and the NLLLoss for the classifier
     disc_criterion = nn.BCELoss()
     class_criterion = nn.NLLLoss()
 
@@ -242,7 +244,7 @@ def main():
             D_x += output.mean().item()
 
             # # Train with generated images batch
-            gen_input, exp_nums = create_generator_input(b_size, device)
+            gen_input, exp_nums = create_generator_input(b_size, device, args)
             # Generate image batch with G
             gen_imgs = generator(gen_input, exp_nums)
             label.fill_(fake_label)
