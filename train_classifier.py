@@ -12,19 +12,21 @@ from torch.optim.lr_scheduler import StepLR
 class ClassifierNet(nn.Module):
     def __init__(self):
         super(ClassifierNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+        self.conv0 = nn.Conv2d(1, 16, 3, 1)
+        self.conv1 = nn.Conv2d(16, 32, 3, 1)
+        self.conv2 = nn.Conv2d(32, 64, 3, 2)
         self.dropout1 = nn.Dropout(0.25)
         self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(9216, 128)
+        self.fc1 = nn.Linear(7744, 128)
         self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
+        x = self.conv0(x)
+        x = F.leaky_relu(x)
         x = self.conv1(x)
-        x = F.relu(x)
+        x = F.leaky_relu(x)
         x = self.conv2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
+        x = F.leaky_relu(x)
         x = self.dropout1(x)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
@@ -78,7 +80,6 @@ def test(model, device, test_loader):
         plt.subplot(4, 4, i+1)
         plt.title(f"Prediction: {pred[idx].item()}, Target {target[idx].item()}")
         plt.imshow(data[idx, 0, :, :].cpu(), cmap='gray', vmin=-0.4242, vmax=2.8215)
-        #print(data[idx, 0, :, :].min(), data[idx, 0, :, :].max())
 
 
 def main():
