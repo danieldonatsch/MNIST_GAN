@@ -309,6 +309,11 @@ def main():
             plt.title(f"T: {int(fixed_exp_nums[sample_no].item())} (C: {derived_num[sample_no]})",
                       {'color': 'g' if fixed_exp_nums[sample_no].item() == derived_num[sample_no] else 'r'})
             plt.imshow(gen_imgs[sample_no, 0, :, :].cpu().detach().numpy(), cmap='gray')
+            border_color = 'green' if output_disc[sample_no] > 0.499 else 'red'
+            for side in ['top', 'right', 'bottom', 'left']:
+                plt.gca().spines[side].set_color(border_color)
+            plt.xticks([])
+            plt.yticks([])
 
         plt.savefig(os.path.join(out_dir, f"fixed_input_samples_epoch={epoch+1}_acc={int(100*accuracy):02d}.png"))
 
@@ -325,6 +330,9 @@ def main():
             plt.show()
         else:
             plt.close()
+
+        if args.dry_run:
+            break
 
     # Save the models - in any case!
     torch.save(generator.state_dict(), os.path.join(out_dir, "generator_weights_final.pt"))
