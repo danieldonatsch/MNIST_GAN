@@ -203,6 +203,10 @@ def main():
     for epoch in range(args.epochs):
         alpha = 0.5 + (epoch * args.delta_alpha)
         print("alpha:", alpha)
+
+        generator.train()
+        discriminator.train()
+
         loss_disc, loss_gen, D_x, D_G_z1, D_G_z2, gen_acc = 0, 0, 0, 0, 0, 0
         # For each batch in the dataloader
         for i, data in enumerate(dataloader, 0):
@@ -239,7 +243,8 @@ def main():
             # Compute error of D as sum over the generated and the real images batches
             err_discriminator = err_disc_real + err_disc_gen
             # Update D
-            opt_disc.step()
+            if i % 2 == 0:
+                opt_disc.step()
             # Compute mean value for the discriminator on generated images
             D_G_z1 += output.mean().item()
             loss_disc += err_discriminator.item()
@@ -289,6 +294,8 @@ def main():
         scheduler_gen.step()
         scheduler_disc.step()
         # run once the fixed noise
+        generator.eval()
+        discriminator.eval()
         gen_imgs = generator(fixed_gen_in, fixed_exp_nums)
         output_class = classifier(gen_imgs)
         output_disc = discriminator(gen_imgs).view(-1)
