@@ -32,15 +32,15 @@ class Generator(nn.Module):
             # 10 numbers for the one-hot encoding of the requested digit
             nn.Linear(10+len_z, 7*7*128),
             nn.Unflatten(1, (128, 7, 7)),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
             # state size. ``128 x 7 x 7``
             nn.ConvTranspose2d(128, 128, 4, 2, 1, bias=False),
             nn.BatchNorm2d(128),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
             # state size. ``128 x 14 x 14``
             nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
             nn.BatchNorm2d(64),
-            nn.ReLU(True),
+            nn.LeakyReLU(True),
             # state size. ``64 x 28 x 28``
             nn.Conv2d(64, 1, 3, 1, 1, bias=False),
             nn.Tanh()
