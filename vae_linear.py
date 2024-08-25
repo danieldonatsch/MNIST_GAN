@@ -15,7 +15,7 @@ import torch.utils
 import torch.distributions
 import torchvision
 import numpy as np
-import matplotlib.pyplot as plt;
+import matplotlib.pyplot as plt
 
 
 class VariationalEncoder(nn.Module):
@@ -27,7 +27,7 @@ class VariationalEncoder(nn.Module):
         self.linear3 = nn.Linear(512, latent_dims)
 
         self.N = torch.distributions.Normal(0, 1)
-        self.N.loc = self.N.loc.to(device) # hack to get sampling on the GPU
+        self.N.loc = self.N.loc.to(device)
         self.N.scale = self.N.scale.to(device)
         self.kl = 0
 
@@ -35,7 +35,7 @@ class VariationalEncoder(nn.Module):
         x = torch.flatten(x, start_dim=1)
         x = F.relu(self.linear1(x))
         # Next lines make the encoder a variational one.
-        # Instead of one layer for the embeding, we have two
+        # Instead of one layer for the embedding, we have two.
         # One that creates mu, the other sigma.
         mu = self.linear2(x)
         sigma = torch.exp(self.linear3(x))
@@ -78,6 +78,13 @@ class VariationalAutoencoder(nn.Module):
 
 
 def train(autoencoder, data, epochs=20):
+    """Trains the auto encoder.
+
+    :param autoencoder: PyTorch model, which should be trained
+    :param data: Training data
+    :param epochs: Number of epochs (default: 20)
+    :return: trained autoencoder
+    """
     device = get_device()
     print(f"Start training for {epochs} epochs on {device}")
     opt = torch.optim.Adam(autoencoder.parameters())
@@ -96,6 +103,10 @@ def train(autoencoder, data, epochs=20):
 
 
 def get_device():
+    """Figures out which device is requested by the user, and which one is available
+
+    :return: torch.device
+    """
     # If GPU usage is disabled, return just CPU
     if args.no_gpu:
         return torch.device("cpu")
@@ -110,6 +121,12 @@ def get_device():
 
 
 def plot_latent(autoencoder, data, num_batches=100):
+    """Plots the sample points colored to show the distribution in the latent Space
+
+    :param autoencoder: Autoencoder which produces the image
+    :param data: MNIST data (samples)
+    :param num_batches: number of batches (defines the sample size)
+    """
     device = get_device()
     plt.figure()
     plt.title("Latent Vector Representations")
@@ -122,7 +139,51 @@ def plot_latent(autoencoder, data, num_batches=100):
             break
 
 
+def plot_latent_distribution(autoencoder, data, num_batches=100, num_bins=51):
+    """Plots a histogram of batch_size*num_batch samples to check if it is a Normal distribution.
+
+    :param autoencoder: Autoencoder which produces the image
+    :param data: MNIST data (samples)
+    :param num_batches: Number of batches (defines the sample size)
+    :param num_bins: Number of bins for the histogram
+    :return:
+    """
+    device = get_device()
+
+    sample_values = [[], [], []]
+    for i, (x, y) in enumerate(data):
+        z = autoencoder.encoder(x.to(device))
+        z = z.to('cpu').detach().numpy()
+        for j in range(min(3, z.shape[1])):
+            sample_values[j].extend(z[:, j])
+        if i > num_batches:
+            break
+
+    plt.figure()
+    plt.axis('off')
+    for j in range(2):
+        mu = np.mean(sample_values[j])
+        sigma = np.sqrt(np.var(sample_values[j]))
+        f = 1 / (sigma * np.sqrt(2*np.pi))
+        gauss_samples = np.linspace(min(sample_values[j]), max(sample_values[j]), num_bins)
+        plt.subplot(2, 1, j+1)
+        plt.title(f"Latent Space Value {j+1} Distribution")
+        plt.hist(sample_values[j], bins=num_bins, density=True, label="Sample Histogram")
+        plt.plot(gauss_samples,
+                 [f*np.exp(-0.5*((x-mu)/sigma)**2) for x in gauss_samples],
+                 ':r', label=f'N({mu:.4f}, {sigma:.4f})')
+        plt.legend()
+
+
 def plot_reconstructed(autoencoder, r0=(-5, 10), r1=(-10, 5), n=12):
+    """Plots images, for the given latent space in n steps
+
+    :param autoencoder: Autoencoder which produces the image
+    :param r0:
+    :param r1:
+    :param n: number of steps along the given ranges
+    :return: None
+    """
     device = get_device()
     w = 28
     img = np.zeros((n*w, n*w))
@@ -135,6 +196,7 @@ def plot_reconstructed(autoencoder, r0=(-5, 10), r1=(-10, 5), n=12):
     plt.figure()
     plt.title("Reconstructed Digits from Latent Space")
     plt.imshow(img, extent=[*r0, *r1])
+    plt.axis('off')
 
 
 def get_user_args():
@@ -180,6 +242,7 @@ def main():
         torch.save(vae.state_dict(), "vae_linear.pt")
 
     plot_latent(vae, data)
+    plot_latent_distribution(vae, data, num_bins=51)
     plot_reconstructed(vae, r0=(-3, 3), r1=(-3, 3))
     plt.show()
 
