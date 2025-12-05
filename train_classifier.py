@@ -1,5 +1,8 @@
 from __future__ import print_function
 import argparse
+import datetime
+import os.path
+
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -54,7 +57,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
                 break
 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, epoch):
     model.eval()
     test_loss = 0
     correct = 0
@@ -74,12 +77,13 @@ def test(model, device, test_loader):
 
     rand_samples = torch.randint(low=0, high=target.size(0), size=(16,))
 
-    plt.figure()
+    plt.figure(figsize=(32, 18))
     for i, sample_ind in enumerate(rand_samples):
         idx = sample_ind.item()
         plt.subplot(4, 4, i+1)
         plt.title(f"Prediction: {pred[idx].item()}, Target {target[idx].item()}")
         plt.imshow(data[idx, 0, :, :].cpu(), cmap='gray', vmin=-0.4242, vmax=2.8215)
+    plt.savefig(os.path.join('training_classifier', f'test_samples_epoch={epoch:02d}.png'))
 
 
 def main():
@@ -144,11 +148,12 @@ def main():
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, test_loader)
+        test(model, device, test_loader, epoch)
         scheduler.step()
 
     if args.save_model:
-        torch.save(model.state_dict(), "mnist_classifier.pt")
+        torch.save(model.state_dict(),
+                   f"mnist_classifier_{datetime.datetime.now().strftime('%Y%m%d-%H:%M:%S')}.pt")
 
     plt.show()
 

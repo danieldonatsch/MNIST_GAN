@@ -2,8 +2,6 @@
 
 Good video to understand KL-Divergence
 https://www.youtube.com/watch?v=q0AkK8aYbLY
-
-
 """
 import argparse
 import os.path
@@ -193,10 +191,11 @@ def plot_reconstructed(autoencoder, r0=(-5, 10), r1=(-10, 5), n=12):
             x_hat = autoencoder.decoder(z)
             x_hat = x_hat.reshape(28, 28).to('cpu').detach().numpy()
             img[(n-1-i)*w:(n-1-i+1)*w, j*w:(j+1)*w] = x_hat
-    plt.figure()
+    plt.figure(figsize=(32, 18))
     plt.title("Reconstructed Digits from Latent Space")
-    plt.imshow(img, extent=[*r0, *r1])
+    plt.imshow(img, extent=[*r0, *r1], cmap='grey')
     plt.axis('off')
+    plt.savefig(os.path.join('out', 'vae_reconstructed_digits_form_latent_space.png'))
 
 
 def get_user_args():
